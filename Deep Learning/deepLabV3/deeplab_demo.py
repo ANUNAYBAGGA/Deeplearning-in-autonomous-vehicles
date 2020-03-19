@@ -11,12 +11,15 @@ from io import BytesIO
 import tarfile
 import tempfile
 from six.moves import urllib
-
+import cv2
 from matplotlib import gridspec
 from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
 import tensorflow as tf
+import time
+from skimage import measure
+
 class DeepLabModel(object):
   INPUT_TENSOR_NAME = 'ImageTensor:0'
   OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
@@ -54,6 +57,7 @@ class DeepLabModel(object):
         self.OUTPUT_TENSOR_NAME,
         feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
     seg_map = batch_seg_map[0]
+    print(seg_map)
     return resized_image, seg_map
 
 
@@ -92,12 +96,15 @@ def label_to_color_image(label):
 
   if np.max(label) >= len(colormap):
     raise ValueError('label value too large.')
-
   return colormap[label]
 
 
+def vis_text(image,string,pos):
+    cv2.putText(image,string,(pos),cv2.FONT_HERSHEY_SIMPLEX, 0.75, (77, 255, 9), 2)
+
 def vis_segmentation(image, seg_map):
   """Visualizes input image, segmentation map and overlay view."""
+  
   plt.figure(figsize=(15, 5))
   grid_spec = gridspec.GridSpec(1, 4, width_ratios=[6, 6, 6, 1])
 
@@ -117,7 +124,16 @@ def vis_segmentation(image, seg_map):
   plt.imshow(seg_image, alpha=0.7)
   plt.axis('off')
   plt.title('segmentation overlay')
-
+  map_labeled = measure.label(seg_map, connectivity=1)
+  for region in measure.regionprops(map_labeled):
+      if region.area > 500:
+            box = region.bbox
+            p1 = (int(box[1]), int(box[0]))
+            p2 = (int(box[3]), int(box[2]))
+            image = np.array(image) 
+            cv2.rectangle(image, p1, p2, (77,255,9), 2)
+            vis_text(image,LABEL_NAMES[seg_map[tuple(region.coords[0])]],(p1[0],p1[1]-10))
+  cv2.imshow('segmentation',image)
   unique_labels = np.unique(seg_map)
   ax = plt.subplot(grid_spec[3])
   plt.imshow(
@@ -128,7 +144,13 @@ def vis_segmentation(image, seg_map):
   ax.tick_params(width=0.0)
   plt.grid('off')
   plt.show()
-
+  """
+  seg_image = label_to_color_image(seg_map).astype(np.uint8)
+  seg_image = np.array(seg_image)
+  image = np.array(image)
+  cv2.addWeighted(seg_image, 0.5, image, 1 - 0.5,0, image)
+  cv2.imshow("",image)
+  """
 def run_visualization(img):
   """Inferences DeepLab model and visualizes result."""
   try:
@@ -170,17 +192,20 @@ _MODEL_URLS = {
 }
 model_dir = tempfile.mkdtemp()
 tf.gfile.MakeDirs(model_dir)
-_TARBALL_NAME = 'deeplabv3_pascal_train_aug_2018_01_04.tar.gz'
+
 download_path = os.path.join(model_dir, _TARBALL_NAME)
 print('downloading model, this might take a while...')
 urllib.request.urlretrieve(_DOWNLOAD_URL_PREFIX + _MODEL_URLS[MODEL_NAME],
                    download_path)
 print('download completed! loading DeepLab model...')
 """
-
-_TARBALL_NAME = 'deeplabv3_pascal_train_aug_2018_01_04.tar.gz'
+_TARBALL_NAME = 'deeplabv3_mobilenet.tar.gz'
+#_TARBALL_NAME = 'deeplabv3_pascal_train_aug_2018_01_04.tar.gz'
+#_TARBALL_NAME = 'deeplab_cityscapes_xception71.tar.gz'
 MODEL = DeepLabModel(_TARBALL_NAME)
 print('model loaded successfully!')
 
 sample = "sample.jpg"
+curr_time = time.time()
 run_visualization(sample)
+print("Time elapsed = " , time.time() - curr_time)
